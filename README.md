@@ -95,8 +95,7 @@ DATABASE_URL=mysql+aiomysql://user:pass@host:3306/lingying?charset=utf8mb4
 
 - 请在各模型供应商处自行开通账号并配置 API Key，视频 / 图像生成按量计费，建议先用少量分镜试产再放量。
 - 剪映草稿导出面向中国大陆版剪映，CapCut 兼容性未验证。
-- 本项目基于开源项目 [ArcReel](https://github.com/ArcReel/ArcReel)（AGPL-3.0）二次开发，在此基础上的主要定制包括：MySQL 方言支持与数据迁移链路、对话流 SSE → WebSocket 改造、内嵌 Agent 的「灵映」角色定制等。
 
 ## 许可证
 
-[AGPL-3.0](LICENSE)（继承自上游 ArcReel）
+[AGPL-3.0](LICENSE)
