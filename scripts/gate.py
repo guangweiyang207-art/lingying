@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -184,7 +185,13 @@ def _acquire_gate_lock() -> portalocker.Lock:
 def _run(step: Step) -> int:
     started = time.monotonic()
     print(f"\n$ {step.describe()}", flush=True)
-    code = subprocess.run(step.argv, cwd=step.cwd, check=False).returncode
+    # Windows 上 pnpm 等前端工具是 npm 生成的 .cmd/.ps1 垫片：CreateProcess 只检索
+    # .exe，直接传命令名会 WinError 2。用 shutil.which 按 PATHEXT 解析成绝对路径；
+    # POSIX 与已带路径的命令不受影响。
+    argv = list(step.argv)
+    if not os.path.isabs(argv[0]) and not os.path.dirname(argv[0]):
+        argv[0] = shutil.which(argv[0]) or argv[0]
+    code = subprocess.run(argv, cwd=step.cwd, check=False).returncode
     print(f"[gate] {'ok' if code == 0 else f'exit {code}'} in {time.monotonic() - started:.0f}s", flush=True)
     return code
 
