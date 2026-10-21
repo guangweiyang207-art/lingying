@@ -89,13 +89,13 @@ def upgrade() -> None:
             f"custom_provider_model: {model_total - model_mapped} 条记录的 (api_format, media_type) 不在迁移映射中"
         )
 
-    # 5) drop 旧列 + alter NOT NULL
+    # 5) drop 旧列 + alter NOT NULL（MySQL 的 MODIFY 必须带 existing_type）
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
-        batch_op.alter_column("endpoint", nullable=False)
+        batch_op.alter_column("endpoint", existing_type=sa.String(length=32), nullable=False)
         batch_op.drop_column("media_type")
 
     with op.batch_alter_table("custom_provider", schema=None) as batch_op:
-        batch_op.alter_column("discovery_format", nullable=False)
+        batch_op.alter_column("discovery_format", existing_type=sa.String(length=32), nullable=False)
         batch_op.drop_column("api_format")
 
 
@@ -126,11 +126,11 @@ def downgrade() -> None:
             f"custom_provider_model: {model_total - model_mapped} 条记录的 endpoint 不在 downgrade 映射中"
         )
 
-    # 3) drop 新列 + alter NOT NULL
+    # 3) drop 新列 + alter NOT NULL（MySQL 的 MODIFY 必须带 existing_type）
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
-        batch_op.alter_column("media_type", nullable=False)
+        batch_op.alter_column("media_type", existing_type=sa.String(length=16), nullable=False)
         batch_op.drop_column("endpoint")
 
     with op.batch_alter_table("custom_provider", schema=None) as batch_op:
-        batch_op.alter_column("api_format", nullable=False)
+        batch_op.alter_column("api_format", existing_type=sa.String(length=32), nullable=False)
         batch_op.drop_column("discovery_format")

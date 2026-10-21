@@ -54,3 +54,21 @@ def preserve_sqlite_indexes(table_name: str) -> Generator[None]:
     for name, ddl in captured.items():
         if name not in surviving:
             op.execute(ddl)
+
+
+def drop_index_if_exists(bind: Connection, table_name: str, index_name: str) -> None:
+    """跨方言安全地删除索引：存在才删，不存在静默跳过。
+
+    SQLite / PostgreSQL 支持 ``DROP INDEX IF EXISTS``；MySQL 5.7 两者皆无——既没有
+    IF EXISTS 语法，``ALTER TABLE ... DROP INDEX`` 在索引缺失时直接报错，因此先查
+    information_schema 判存再删。三个方言都不触发 SQLite 的表重建路径。
+    """
+    dialect = bind.dialect.name
+    if dialect in ("sqlite", "postgresql"):
+        bind.execute(sa.text(f'DROP INDEX IF EXISTS "{index_name}"'))
+        return
+    if dialect != "mysql":
+        raise ValueError(f"不支持的方言：{dialect}")
+    existing = sa.inspect(bind).get_indexes(table_name)
+    if any(index["name"] == index_name for index in existing):
+        bind.execute(sa.text(f"ALTER TABLE `{table_name}` DROP INDEX `{index_name}`"))

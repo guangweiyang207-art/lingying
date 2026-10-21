@@ -22,6 +22,8 @@ dependencies = [
     "pyjwt>=2.12.1",
     "sqlalchemy[asyncio]>=2.0.48",
     "aiosqlite>=0.22.1",
+    # SQLAlchemy 的 mysql+aiomysql 异步驱动（纯 Python，基于 PyMySQL）。
+    "aiomysql>=0.2.3",
     "asyncpg>=0.31.0",
     "alembic>=1.18.4",
     "pwdlib[argon2]>=0.3.0",
@@ -98,9 +100,10 @@ asyncio_mode = "auto"
 # 卡死保护，不是耗时预算：当前最慢用例 30s，留 4 倍余量。个别用例需要更大预算时用
 # `@pytest.mark.timeout(N)` 单独放宽，不抬全局值。
 timeout = 120
-# signal 法对 async 与 sync 用例均生效，超时表现为普通 failure（会话继续、teardown
-# 正常、可归因）；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash。
-timeout_method = "signal"
+# 不强制 timeout_method：插件按平台自选——支持 SIGALRM 的平台用 signal 法（超时表现为
+# 普通 failure，会话继续、teardown 正常、可归因），Windows 没有 SIGALRM，强制 signal
+# 会让插件直接崩溃；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash，仅
+# Windows 本地跑测试时退化为这一行为。
 # 并行不写进 addopts，只在 CI 命令里显式开（-n 4 --dist loadfile）：小选集并行更慢，
 # 每 worker 重新 import server.app 的固定开销吃掉全部收益，而本地调试几乎都是小选集。
 markers = [
@@ -310,6 +313,7 @@ known_first_party = ["lib", "server", "alembic", "scripts", "tests"]
 # 源码里不会出现 import。
 DEP002 = [
     "aiosqlite",        # SQLAlchemy 的 sqlite+aiosqlite 异步驱动
+    "aiomysql",         # SQLAlchemy 的 mysql+aiomysql 异步驱动
     "asyncpg",          # SQLAlchemy 的 postgresql+asyncpg 异步驱动
     "python-multipart", # Starlette 解析 multipart/form-data 的后端
     "socksio",          # httpx 的 SOCKS 代理传输后端

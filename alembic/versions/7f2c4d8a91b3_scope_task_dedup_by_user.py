@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from lib.db.migration_helpers import drop_index_if_exists
 
 revision: str = "7f2c4d8a91b3"
 down_revision: str | Sequence[str] | None = "26c2f9d11c8e"
@@ -19,14 +20,13 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _drop_dedup_index() -> None:
-    bind = op.get_bind()
-    if bind.dialect.name in ("sqlite", "postgresql"):
-        op.execute("DROP INDEX IF EXISTS idx_tasks_dedupe_active")
-    else:
-        op.drop_index("idx_tasks_dedupe_active", table_name="tasks")
+    drop_index_if_exists(op.get_bind(), "tasks", "idx_tasks_dedupe_active")
 
 
 def _create_dedup_index(*, include_user: bool) -> None:
+    # MySQL 无表达式/部分索引：跳过，链尾 9d3f2a7b6c51 补等价语义。
+    if op.get_bind().dialect.name == "mysql":
+        return
     columns: list[str | sa.TextClause] = ["project_name"]
     if include_user:
         columns.append("user_id")

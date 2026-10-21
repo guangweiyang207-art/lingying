@@ -17,6 +17,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # MySQL：(source_key VARCHAR(2048), slug VARCHAR(64)) 组合唯一超过索引键 3072 字节上限，
+    # 以 CONCAT 后取 MD5 的生成列承载唯一约束（语义等价全值唯一）。
+    is_mysql = op.get_bind().dialect.name == "mysql"
     op.create_table(
         "market_installation",
         sa.Column("custom_endpoint_id", sa.Integer(), nullable=False),
@@ -27,8 +30,14 @@ def upgrade() -> None:
         sa.Column("installed_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["custom_endpoint_id"], ["custom_endpoint.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("custom_endpoint_id"),
-        sa.UniqueConstraint("source_key", "slug"),
+        *([] if is_mysql else [sa.UniqueConstraint("source_key", "slug")]),
     )
+    if is_mysql:
+        op.execute(
+            "ALTER TABLE market_installation ADD COLUMN source_slug_hash CHAR(32) CHARACTER SET ascii "
+            "AS (MD5(CONCAT(source_key, '|', slug))) VIRTUAL"
+        )
+        op.create_index("uq_market_installation_source_slug", "market_installation", ["source_slug_hash"], unique=True)
 
 
 def downgrade() -> None:

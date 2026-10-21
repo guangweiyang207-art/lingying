@@ -67,7 +67,9 @@ def upgrade() -> None:
 
     # 2b. Rebuild expression-based partial index lost during batch rebuild
     #     (SQLAlchemy cannot reflect expression indexes on SQLite)
-    if not is_pg:
+    #     仅 SQLite：PG 已有原生部分索引；MySQL 无表达式/部分索引，本就未建过，
+    #     由链尾的 9d3f2a7b6c51 补生成列等价。
+    if bind.dialect.name == "sqlite":
         op.execute(
             sa.text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_dedupe_active "

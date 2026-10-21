@@ -95,14 +95,17 @@ def upgrade() -> None:
     op.create_index("idx_tasks_status_queued_at", "tasks", ["status", "queued_at"])
     op.create_index("idx_tasks_project_updated_at", "tasks", ["project_name", "updated_at"])
     op.create_index("idx_tasks_dependency_task_id", "tasks", ["dependency_task_id"])
-    op.create_index(
-        "idx_tasks_dedupe_active",
-        "tasks",
-        ["project_name", "task_type", "resource_id", sa.text("COALESCE(script_file, '')")],
-        unique=True,
-        postgresql_where=sa.text("status IN ('queued', 'running')"),
-        sqlite_where=sa.text("status IN ('queued', 'running')"),
-    )
+    # MySQL 无表达式索引（函数索引 8.0.13+ 才有）也无部分索引：此处跳过，
+    # 由链尾的 9d3f2a7b6c51 以生成列 + 唯一索引补等价语义。
+    if op.get_bind().dialect.name != "mysql":
+        op.create_index(
+            "idx_tasks_dedupe_active",
+            "tasks",
+            ["project_name", "task_type", "resource_id", sa.text("COALESCE(script_file, '')")],
+            unique=True,
+            postgresql_where=sa.text("status IN ('queued', 'running')"),
+            sqlite_where=sa.text("status IN ('queued', 'running')"),
+        )
 
     op.create_table(
         "worker_lease",

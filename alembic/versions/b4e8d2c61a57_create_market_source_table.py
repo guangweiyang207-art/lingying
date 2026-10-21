@@ -21,6 +21,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    # MySQL：canonical_key VARCHAR(2048) 全列唯一超过索引键 3072 字节上限，
+    # 以 MD5 生成列承载唯一约束（语义等价全值唯一）。
+    is_mysql = op.get_bind().dialect.name == "mysql"
     op.create_table(
         "market_source",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -39,9 +42,15 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("canonical_key"),
+        *([] if is_mysql else [sa.UniqueConstraint("canonical_key")]),
         sqlite_autoincrement=True,
     )
+    if is_mysql:
+        op.execute(
+            "ALTER TABLE market_source ADD COLUMN canonical_key_hash CHAR(32) CHARACTER SET ascii "
+            "AS (MD5(canonical_key)) VIRTUAL"
+        )
+        op.create_index("uq_market_source_canonical_key", "market_source", ["canonical_key_hash"], unique=True)
 
 
 def downgrade() -> None:

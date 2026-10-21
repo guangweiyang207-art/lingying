@@ -31,9 +31,15 @@ def upgrade() -> None:
     cols = _get_column_names("api_calls")
 
     with op.batch_alter_table("api_calls") as batch_op:
-        # Rename cost_usd → cost_amount (skip if already renamed)
+        # Rename cost_usd → cost_amount (skip if already renamed)。
+        # MySQL 的 CHANGE 必须携带完整列定义，existing_type/nullable 不可省。
         if "cost_usd" in cols:
-            batch_op.alter_column("cost_usd", new_column_name="cost_amount")
+            batch_op.alter_column(
+                "cost_usd",
+                new_column_name="cost_amount",
+                existing_type=sa.Float(),
+                existing_nullable=False,
+            )
         # Add new columns (skip if already present)
         if "currency" not in cols:
             batch_op.add_column(sa.Column("currency", sa.String(), server_default="USD", nullable=False))
@@ -49,4 +55,9 @@ def downgrade() -> None:
         batch_op.drop_column("usage_tokens")
         batch_op.drop_column("provider")
         batch_op.drop_column("currency")
-        batch_op.alter_column("cost_amount", new_column_name="cost_usd")
+        batch_op.alter_column(
+            "cost_amount",
+            new_column_name="cost_usd",
+            existing_type=sa.Float(),
+            existing_nullable=False,
+        )

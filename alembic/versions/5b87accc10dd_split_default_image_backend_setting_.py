@@ -20,12 +20,20 @@ down_revision: str | Sequence[str] | None = "eedf0aa985e6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# key 是 MySQL 保留字，统一用表达式构造让方言自动引用。
+_SYSTEM_SETTING = sa.table(
+    "system_setting",
+    sa.column("key"),
+    sa.column("value"),
+    sa.column("updated_at"),
+)
+
 
 def upgrade() -> None:
     """把已有 default_image_backend 的值复制到 _t2i / _i2i 两条新 key（若新 key 已存在则跳过该条）。"""
     bind = op.get_bind()
     legacy_row = bind.execute(
-        sa.text("SELECT value FROM system_setting WHERE key = 'default_image_backend'")
+        sa.select(_SYSTEM_SETTING.c.value).where(_SYSTEM_SETTING.c.key == "default_image_backend")
     ).fetchone()
     if legacy_row is None:
         return
@@ -33,14 +41,12 @@ def upgrade() -> None:
     legacy_value = legacy_row[0]
 
     for new_key in ("default_image_backend_t2i", "default_image_backend_i2i"):
-        existing = bind.execute(sa.text("SELECT 1 FROM system_setting WHERE key = :k").bindparams(k=new_key)).fetchone()
+        existing = bind.execute(
+            sa.select(sa.literal(1)).select_from(_SYSTEM_SETTING).where(_SYSTEM_SETTING.c.key == new_key)
+        ).fetchone()
         if existing:
             continue
-        bind.execute(
-            sa.text(
-                "INSERT INTO system_setting (key, value, updated_at) VALUES (:k, :v, CURRENT_TIMESTAMP)"
-            ).bindparams(k=new_key, v=legacy_value)
-        )
+        bind.execute(_SYSTEM_SETTING.insert().values(key=new_key, value=legacy_value, updated_at=sa.func.now()))
 
 
 def downgrade() -> None:

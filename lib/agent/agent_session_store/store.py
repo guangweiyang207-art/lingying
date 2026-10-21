@@ -18,6 +18,7 @@ from claude_agent_sdk import (
 )
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, text
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -181,7 +182,7 @@ class DbSessionStore:
             AgentSessionSummary.project_key == project_key,
             AgentSessionSummary.session_id == session_id,
         )
-        if dialect == "postgresql":
+        if dialect in ("postgresql", "mysql"):
             stmt = stmt.with_for_update()
         prev_row = (await session.execute(stmt)).scalar_one_or_none()
 
@@ -235,6 +236,12 @@ class DbSessionStore:
                 index_elements=index_elements,
                 index_where=index_where,
             )
+        elif dialect == "mysql":
+            # MySQL 无 ON CONFLICT / 部分索引：uq_agent_entries_uuid 在 MySQL 上是全列唯一
+            # 索引（eedf0aa985e6 以 mysql_length 收窄前缀；NULL uuid 互不冲突，与
+            # WHERE uuid IS NOT NULL 的部分索引语义等价），INSERT IGNORE 即「同键跳过」。
+            stmt = mysql_insert(AgentSessionEntry).values(rows)
+            stmt = stmt.prefix_with("IGNORE")
         else:
             stmt = sqlite_insert(AgentSessionEntry).values(rows)
             stmt = stmt.on_conflict_do_nothing(

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from lib.db.migration_helpers import drop_index_if_exists
 
 # revision identifiers, used by Alembic.
 revision: str = "e167b56a3e79"
@@ -21,12 +22,7 @@ depends_on: str | Sequence[str] | None = None
 
 def _drop_dedup_index_if_exists() -> None:
     """跨方言安全 drop：DB 可能因历史迁移漂移而没建过该索引，避免 OperationalError。"""
-    bind = op.get_bind()
-    dialect = bind.dialect.name
-    if dialect in ("sqlite", "postgresql"):
-        op.execute("DROP INDEX IF EXISTS idx_tasks_dedupe_active")
-    else:
-        op.drop_index("idx_tasks_dedupe_active", table_name="tasks")
+    drop_index_if_exists(op.get_bind(), "tasks", "idx_tasks_dedupe_active")
 
 
 def _collapse_duplicate_active_tasks_for_downgrade() -> None:
@@ -73,20 +69,22 @@ def upgrade() -> None:
     """
     op.add_column("tasks", sa.Column("resource_type", sa.String(), nullable=True))
     _drop_dedup_index_if_exists()
-    op.create_index(
-        "idx_tasks_dedupe_active",
-        "tasks",
-        [
-            "project_name",
-            "task_type",
-            "resource_id",
-            sa.text("COALESCE(script_file, '')"),
-            sa.text("COALESCE(resource_type, '')"),
-        ],
-        unique=True,
-        postgresql_where=sa.text("status IN ('queued', 'running', 'cancelling')"),
-        sqlite_where=sa.text("status IN ('queued', 'running', 'cancelling')"),
-    )
+    # MySQL 无表达式/部分索引：跳过，链尾 9d3f2a7b6c51 补等价语义。
+    if op.get_bind().dialect.name != "mysql":
+        op.create_index(
+            "idx_tasks_dedupe_active",
+            "tasks",
+            [
+                "project_name",
+                "task_type",
+                "resource_id",
+                sa.text("COALESCE(script_file, '')"),
+                sa.text("COALESCE(resource_type, '')"),
+            ],
+            unique=True,
+            postgresql_where=sa.text("status IN ('queued', 'running', 'cancelling')"),
+            sqlite_where=sa.text("status IN ('queued', 'running', 'cancelling')"),
+        )
 
 
 def downgrade() -> None:

@@ -27,8 +27,10 @@ def upgrade() -> None:
     # 2. 添加 UNIQUE + NOT NULL 约束（使用 batch_alter_table 以兼容 SQLite）
     with op.batch_alter_table("agent_sessions", schema=None) as batch_op:
         batch_op.alter_column(
+            # 列在 156fe0aa0414 以 sa.String 创建；MySQL 的 MODIFY 必须携带实际类型
+            # （无长度 VARCHAR 不可编译，经 lib.db.mysql_compat 定型为 VARCHAR(255)）。
             "sdk_session_id",
-            existing_type=sa.VARCHAR(),
+            existing_type=sa.String(),
             nullable=False,
         )
         batch_op.create_unique_constraint("uq_agent_sessions_sdk_session_id", ["sdk_session_id"])
@@ -40,6 +42,6 @@ def downgrade() -> None:
         batch_op.drop_constraint("uq_agent_sessions_sdk_session_id", type_="unique")
         batch_op.alter_column(
             "sdk_session_id",
-            existing_type=sa.VARCHAR(),
+            existing_type=sa.String(),
             nullable=True,
         )

@@ -24,28 +24,30 @@ depends_on: str | Sequence[str] | None = None
 _DEFAULT_KEY = "default_image_backend"
 _BUCKET_KEYS = ("default_image_backend_t2i", "default_image_backend_i2i")
 
+# key 是 MySQL 保留字，统一用表达式构造让方言自动引用。
+_SYSTEM_SETTING = sa.table(
+    "system_setting",
+    sa.column("key"),
+    sa.column("value"),
+    sa.column("updated_at"),
+)
+
 
 def _read(bind: sa.Connection, key: str) -> str | None:
-    row = bind.execute(sa.text("SELECT value FROM system_setting WHERE key = :k").bindparams(k=key)).fetchone()
+    row = bind.execute(sa.select(_SYSTEM_SETTING.c.value).where(_SYSTEM_SETTING.c.key == key)).fetchone()
     return None if row is None else row[0]
 
 
 def _write(bind: sa.Connection, key: str, value: str) -> None:
     updated = bind.execute(
-        sa.text("UPDATE system_setting SET value = :v, updated_at = CURRENT_TIMESTAMP WHERE key = :k").bindparams(
-            k=key, v=value
-        )
+        _SYSTEM_SETTING.update().where(_SYSTEM_SETTING.c.key == key).values(value=value, updated_at=sa.func.now())
     ).rowcount
     if not updated:
-        bind.execute(
-            sa.text(
-                "INSERT INTO system_setting (key, value, updated_at) VALUES (:k, :v, CURRENT_TIMESTAMP)"
-            ).bindparams(k=key, v=value)
-        )
+        bind.execute(_SYSTEM_SETTING.insert().values(key=key, value=value, updated_at=sa.func.now()))
 
 
 def _delete(bind: sa.Connection, key: str) -> None:
-    bind.execute(sa.text("DELETE FROM system_setting WHERE key = :k").bindparams(k=key))
+    bind.execute(_SYSTEM_SETTING.delete().where(_SYSTEM_SETTING.c.key == key))
 
 
 def _configured(value: str | None) -> TypeGuard[str]:

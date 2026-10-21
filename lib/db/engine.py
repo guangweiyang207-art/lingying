@@ -17,6 +17,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+# 注册 MySQL 方言的编译期适配（无长度 String → VARCHAR(255)、DATETIME(6)、Float → DOUBLE）。
+# 应用、alembic env 与脚本都经本模块取 DATABASE_URL，import 到这里即完成注册。
+from lib.db import mysql_compat  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
 # Suppress noisy pool/connection errors caused by SSE task cancellation.
 # When an SSE client disconnects, Starlette cancels the response task.
 # aiosqlite connections that are being returned to the pool at that moment

@@ -47,6 +47,10 @@ def upgrade() -> None:
             unique=True,
             postgresql_where=sa.text("uuid IS NOT NULL"),
             sqlite_where=sa.text("uuid IS NOT NULL"),
+            # MySQL 上渲染为全列唯一索引（NULL uuid 互不冲突，与部分索引语义等价）。
+            # utf8mb4 下 4×VARCHAR(255)=4080 字节超出 InnoDB 3072 字节键上限，须收窄前缀；
+            # 4×191=764 字节×4=3056 ≤ 3072。其余方言忽略 mysql_ 前缀参数。
+            mysql_length={"project_key": 191, "session_id": 191, "subpath": 191, "uuid": 191},
         )
 
     op.create_table(

@@ -26,15 +26,18 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    # MySQL 5.7 无 || 字符串连接（是逻辑或）与 CAST AS VARCHAR，用 CONCAT 改写。
+    endpoint_expr = "CONCAT('ce-', id)" if bind.dialect.name == "mysql" else "'ce-' || CAST(id AS VARCHAR)"
     op.execute(
         sa.text(
-            """
+            f"""
             UPDATE custom_provider_model
             SET capability_overrides = NULL
             WHERE capability_overrides IS NOT NULL
               AND (
                 provider_id IN (SELECT id FROM custom_provider WHERE discovery_format = 'comfyui')
-                OR endpoint IN (SELECT 'ce-' || CAST(id AS VARCHAR) FROM custom_endpoint WHERE kind = 'comfyui')
+                OR endpoint IN (SELECT {endpoint_expr} FROM custom_endpoint WHERE kind = 'comfyui')
               )
             """
         )

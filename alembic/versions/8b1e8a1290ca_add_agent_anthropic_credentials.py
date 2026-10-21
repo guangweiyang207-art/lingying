@@ -53,13 +53,15 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("agent_anthropic_credentials", schema=None) as batch_op:
         batch_op.create_index("ix_agent_credential_user", ["user_id"], unique=False)
-        batch_op.create_index(
-            "uq_agent_credential_one_active_per_user",
-            ["user_id"],
-            unique=True,
-            sqlite_where=sa.text("is_active = 1"),
-            postgresql_where=sa.text("is_active"),
-        )
+        # MySQL 无部分索引：跳过，链尾 9d3f2a7b6c51 以生成列 + 唯一索引补等价语义。
+        if op.get_bind().dialect.name != "mysql":
+            batch_op.create_index(
+                "uq_agent_credential_one_active_per_user",
+                ["user_id"],
+                unique=True,
+                sqlite_where=sa.text("is_active = 1"),
+                postgresql_where=sa.text("is_active"),
+            )
 
     # ── 数据迁移：旧 system_setting 中 anthropic_* → 一条 __custom__ active 记录 ──
     bind = op.get_bind()
@@ -67,11 +69,10 @@ def upgrade() -> None:
     # 用 SAVEPOINT 包裹数据迁移块，失败时回滚到 savepoint，不污染外层 alembic 事务。
     savepoint = bind.begin_nested()
     try:
+        # key 是 MySQL 保留字，用表达式构造让方言自动引用。
+        system_setting = sa.table("system_setting", sa.column("key"), sa.column("value"))
         rows = bind.execute(
-            sa.text("SELECT key, value FROM system_setting WHERE key IN :keys").bindparams(
-                sa.bindparam("keys", expanding=True)
-            ),
-            {"keys": list(_LEGACY_KEYS)},
+            sa.select(system_setting.c.key, system_setting.c.value).where(system_setting.c.key.in_(list(_LEGACY_KEYS)))
         ).fetchall()
         settings = {r.key: r.value for r in rows if r.value}
 

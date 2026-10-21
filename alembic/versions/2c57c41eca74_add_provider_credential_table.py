@@ -37,22 +37,31 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("provider_credential", schema=None) as batch_op:
         batch_op.create_index("ix_provider_credential_provider", ["provider"], unique=False)
-        batch_op.create_index(
-            "uq_provider_credential_one_active",
-            ["provider"],
-            unique=True,
-            sqlite_where=sa.text("is_active = 1"),
-            postgresql_where=sa.text("is_active"),
-        )
+        # MySQL 无部分索引：跳过，链尾 9d3f2a7b6c51 以生成列 + 唯一索引补等价语义。
+        if op.get_bind().dialect.name != "mysql":
+            batch_op.create_index(
+                "uq_provider_credential_one_active",
+                ["provider"],
+                unique=True,
+                sqlite_where=sa.text("is_active = 1"),
+                postgresql_where=sa.text("is_active"),
+            )
 
     # ### end Alembic commands ###
 
     # 数据迁移：将 provider_config 中的凭证行迁入 provider_credential
     conn = op.get_bind()
 
+    # key 是 MySQL 保留字，用表达式构造让方言自动引用。
+    provider_config = sa.table(
+        "provider_config",
+        sa.column("provider"),
+        sa.column("key"),
+        sa.column("value"),
+    )
     rows = conn.execute(
-        sa.text(
-            "SELECT provider, key, value FROM provider_config WHERE key IN ('api_key', 'credentials_path', 'base_url')"
+        sa.select(provider_config.c.provider, provider_config.c.key, provider_config.c.value).where(
+            provider_config.c.key.in_(["api_key", "credentials_path", "base_url"])
         )
     ).fetchall()
 
@@ -91,7 +100,7 @@ def upgrade() -> None:
             )
         )
 
-    conn.execute(sa.text("DELETE FROM provider_config WHERE key IN ('api_key', 'credentials_path', 'base_url')"))
+    conn.execute(provider_config.delete().where(provider_config.c.key.in_(["api_key", "credentials_path", "base_url"])))
 
 
 def downgrade() -> None:
