@@ -1177,7 +1177,7 @@ describe("useAssistantSession", () => {
       });
     });
 
-    // 句柄仍打开：断线重建由流式客户端带 Last-Event-ID 完成，hook 不重复建流
+    // 句柄仍打开：断线重建由流式客户端带 `?after=` 游标完成，hook 不重复建流
     await act(async () => {
       await result.current.sendMessage("again");
     });

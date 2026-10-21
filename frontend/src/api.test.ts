@@ -11,6 +11,7 @@ import {
 import i18n from "@/i18n";
 import { clearToken, setToken } from "@/utils/auth";
 import { flushStream, stubSseFetch } from "@/test/fakeSseFetch";
+import { stubWebSocket } from "@/test/fakeWebSocket";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -725,11 +726,11 @@ describe("API", () => {
       expect(API.getFileUrl("my project", "source/a.txt", 3)).toBe(
         "/api/v1/files/my%20project/source/a.txt?v=3",
       );
-      expect(API.getAssistantEntriesStreamUrl("demo", "session-1")).toBe(
-        "/api/v1/projects/demo/assistant/sessions/session-1/entries/stream",
+      expect(API.getAssistantEntriesWsUrl("demo", "session-1")).toBe(
+        "/api/v1/projects/demo/assistant/sessions/session-1/entries/ws",
       );
-      expect(API.getAssistantEntriesStreamUrl("demo", "session-1", 7)).toBe(
-        "/api/v1/projects/demo/assistant/sessions/session-1/entries/stream?after=7",
+      expect(API.getAssistantEntriesWsUrl("demo", "session-1", 7)).toBe(
+        "/api/v1/projects/demo/assistant/sessions/session-1/entries/ws?after=7",
       );
     });
 
@@ -1366,10 +1367,10 @@ describe("API", () => {
       handle.close();
     });
 
-    it("openAssistantEntriesStream resumes with Last-Event-ID after a drop and stops on 401", async () => {
+    it("openAssistantEntriesStream authenticates with a first frame, resumes the cursor after a drop, and stops on 401", async () => {
       vi.useFakeTimers();
       setToken("jwt-1");
-      const fake = stubSseFetch((index) => (index < 2 ? 200 : 401));
+      const fake = stubWebSocket();
       const onEvent = vi.fn();
       const onError = vi.fn();
 
@@ -1380,40 +1381,58 @@ describe("API", () => {
         onEvent,
         onError,
       });
-      await flushStream();
 
-      expect(fake.latest.url).toBe("/api/v1/projects/demo/assistant/sessions/session-1/entries/stream?after=4");
-      expect(fake.latest.headers.get("Authorization")).toBe("Bearer jwt-1");
-      expect(fake.latest.headers.has("Last-Event-ID")).toBe(false);
+      // 首连：凭证以建连后的首帧 auth 携带（ADR 0071：会话凭证不落 URL），URL 只带游标。
+      expect(fake.latest.url).toContain(
+        "/api/v1/projects/demo/assistant/sessions/session-1/entries/ws?after=4",
+      );
+      fake.latest.serverOpen();
+      expect(fake.latest.sent).toEqual([JSON.stringify({ type: "auth", token: "jwt-1" })]);
 
-      fake.latest.emit("entry", { seq: 5, type: "user" }, "5");
-      fake.latest.emit("status", { status: "running" });
-      await flushStream();
-      fake.latest.fail();
-      await flushStream();
-
+      fake.latest.serverSend({ event: "entry", data: { seq: 5, type: "user" }, id: "5" });
+      fake.latest.serverSend({ event: "status", data: { status: "running" } });
       expect(onEvent.mock.calls).toEqual([
         ["entry", { seq: 5, type: "user" }],
         ["status", { status: "running" }],
       ]);
 
+      // 断线重连：URL 携带最近一次 entry 的 seq 作为续传游标。
+      fake.latest.serverClose(1006);
       await vi.advanceTimersByTimeAsync(1000);
-      await flushStream();
       expect(fake.connections).toHaveLength(2);
-      expect(fake.latest.headers.get("Last-Event-ID")).toBe("5");
+      expect(fake.latest.url).toContain(
+        "/api/v1/projects/demo/assistant/sessions/session-1/entries/ws?after=5",
+      );
+      fake.latest.serverOpen();
+      expect(fake.latest.sent).toEqual([JSON.stringify({ type: "auth", token: "jwt-1" })]);
 
-      // 凭证失效：与普通请求一致，清 token 并回登录页，不再重连。
-      // 第二条连接没送到事件就断流，退避涨到 2s（只有收到事件才归零）。
-      fake.latest.end();
-      await flushStream();
-      await vi.advanceTimersByTimeAsync(2000);
-      await flushStream();
-      expect(fake.connections).toHaveLength(3);
+      // 凭证失效（4401）：与普通请求一致处理——清 token 回登录页，不再重连。
+      fake.latest.serverClose(4401);
       expect(handle.closed).toBe(true);
       expect(onError).toHaveBeenLastCalledWith(expect.objectContaining({ status: 401, retryable: false }));
       expect(localStorage.getItem("arcreel_auth_token")).toBeNull();
       await vi.advanceTimersByTimeAsync(60_000);
-      expect(fake.connections).toHaveLength(3);
+      expect(fake.connections).toHaveLength(2);
+
+      handle.close();
+      vi.unstubAllGlobals();
+    });
+
+    it("openAssistantEntriesStream ignores malformed and unknown frames", async () => {
+      const fake = stubWebSocket();
+      const onEvent = vi.fn();
+      const handle = API.openAssistantEntriesStream({
+        projectName: "demo",
+        sessionId: "session-1",
+        onEvent,
+      });
+      fake.latest.serverOpen();
+      fake.latest.onmessage?.({ data: "not-json" });
+      fake.latest.serverSend({ event: "status", data: { status: "idle" } });
+      fake.latest.serverSend({ data: { noEvent: true } });
+      expect(onEvent.mock.calls).toEqual([["status", { status: "idle" }]]);
+      handle.close();
+      vi.unstubAllGlobals();
     });
   });
 

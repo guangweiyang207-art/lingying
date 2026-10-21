@@ -16,6 +16,8 @@ export default defineConfig({
             "/api": {
                 target: "http://127.0.0.1:1241",
                 changeOrigin: true,
+                // 会话 entry 流走 WebSocket，代理必须升级连接。
+                ws: true,
             },
             "/mcp": {
                 target: "http://127.0.0.1:1241",

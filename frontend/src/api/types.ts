@@ -134,7 +134,7 @@ export interface ProjectEventStreamOptions {
 export interface AssistantEntriesStreamOptions {
   projectName: string;
   sessionId: string;
-  /** 冷订阅游标（seq）；断线重建的续传由 `Last-Event-ID` 承担。 */
+  /** 冷订阅游标（seq）；断线重建的续传由客户端携带最近一次 entry 的 seq（`?after=`）承担。 */
   after?: number;
   onEvent: (event: string, payload: Record<string, unknown>) => void;
   onError?: (error: SseStreamError) => void;

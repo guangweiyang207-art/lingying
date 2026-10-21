@@ -12,6 +12,7 @@ import re
 from unittest.mock import patch
 
 import pytest
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 import server.auth as auth_module
@@ -42,10 +43,13 @@ EXEMPT_OPERATIONS = PUBLIC_OPERATIONS | SELF_AUTH_OPERATIONS
 # SSE 端点走普通受保护 router，由前端以 fetch 带 Authorization header 消费；
 # 会话凭证不接受 query param 形态，见 docs/adr/0071。
 SSE_PATHS = (
-    "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
     "/api/v1/projects/demo/assistant/sessions/s1/stream",
     "/api/v1/projects/demo/events/stream",
 )
+
+# 会话 entry 流已 WS 化（浏览器 WebSocket 带不了 header），鉴权以建连后的首帧 auth 承担，
+# 凭证同样不落 URL；端点在 ws_router 上，不经 OpenAPI 枚举，单独覆盖。
+ENTRIES_WS_PATH = "/api/v1/projects/demo/assistant/sessions/s1/entries/ws"
 
 # 验证「放行」的探针端点：受保护，且处理函数只读进程内常量。换端点时要保持这个性质——
 # 依赖数据库等 lifespan 建立的状态，会让这两个用例在干净环境里以 500 失败，掩盖认证结论。
@@ -188,6 +192,56 @@ def test_sse_endpoints_allow_anonymous_when_auth_disabled(auth_coverage_client, 
     """AUTH_ENABLED=false 时 SSE 与其它受保护端点一致，匿名请求也放行。"""
     with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
         assert auth_coverage_client.get(path).status_code != 401
+
+
+def _connect_and_receive_close(client: TestClient, url: str, token: str | None = None) -> None:
+    """建连、（可选）发首帧 auth、读到服务端关闭。"""
+    with client.websocket_connect(url) as ws:
+        if token is not None:
+            ws.send_json({"type": "auth", "token": token})
+        ws.receive_json()
+
+
+def _ws_receive_close(client: TestClient, url: str, token: str | None = None) -> int:
+    """建连走完首帧 auth 协议，返回服务端关闭码。"""
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        _connect_and_receive_close(client, url, token=token)
+    return exc_info.value.code
+
+
+def test_entries_ws_rejects_missing_or_invalid_auth_frame(auth_coverage_client):
+    """WS 不发首帧 auth 或 token 无效，以 4401 关闭。"""
+    assert _ws_receive_close(auth_coverage_client, ENTRIES_WS_PATH) == 4401
+    assert _ws_receive_close(auth_coverage_client, ENTRIES_WS_PATH, token="not-a-jwt") == 4401
+
+
+def test_entries_ws_rejects_query_token(auth_coverage_client):
+    """长效会话 JWT 不得经 ?token= 建连：端点不读 query 凭证，无首帧 auth 仍 4401（ADR 0071）。"""
+    token = _login_token(auth_coverage_client)
+    assert _ws_receive_close(auth_coverage_client, f"{ENTRIES_WS_PATH}?token={token}") == 4401
+
+
+def test_entries_ws_accepts_valid_first_frame(auth_coverage_client):
+    """首帧 auth 带合法 JWT 时认证层放行，后续关闭码由端点自身决定（如会话不存在的 4404）。"""
+    token = _login_token(auth_coverage_client)
+    assert _ws_receive_close(auth_coverage_client, ENTRIES_WS_PATH, token=token) != 4401
+
+
+def test_entries_ws_accepts_api_key(auth_coverage_client):
+    """首帧 auth 带合法 ``arc-`` API Key 时认证层放行。"""
+    key = "arc-auth-coverage-ws-key"
+    key_hash = auth_module._hash_api_key(key)
+    auth_module._set_api_key_cache(key_hash, {"sub": "apikey:coverage", "via": "apikey"})
+    try:
+        assert _ws_receive_close(auth_coverage_client, ENTRIES_WS_PATH, token=key) != 4401
+    finally:
+        auth_module.invalidate_api_key_cache(key_hash)
+
+
+def test_entries_ws_allows_anonymous_when_auth_disabled(auth_coverage_client):
+    """AUTH_ENABLED=false 时 WS 与其它受保护端点一致，匿名建连也放行。"""
+    with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
+        assert _ws_receive_close(auth_coverage_client, ENTRIES_WS_PATH) != 4401
 
 
 def test_trial_artifact_rejects_query_token(auth_coverage_client):

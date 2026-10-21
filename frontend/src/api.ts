@@ -185,7 +185,9 @@ import type {
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
 import i18n from "@/i18n";
+import { getToken } from "@/utils/auth";
 import { openSseStream, type SseStreamHandle } from "@/utils/sse-stream";
+import { openWsStream } from "@/utils/ws-stream";
 import {
   API_BASE,
   handleUnauthorized,
@@ -3003,27 +3005,33 @@ class API {
     );
   }
 
-  /** entry 流 SSE URL（after 为 seq 游标；断线续传由流式客户端的 Last-Event-ID 承担）。 */
-  static getAssistantEntriesStreamUrl(
+  /** entry 流 WS URL（after 为 seq 游标；凭证由建连后的首帧 auth 携带，不落 URL）。 */
+  static getAssistantEntriesWsUrl(
     projectName: string,
     sessionId: string,
     after: number = -1
   ): string {
-    const base = `${API_BASE}${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries/stream`;
+    const base = `${API_BASE}${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries/ws`;
     return after >= 0 ? `${base}?after=${after}` : base;
   }
 
-  /** 订阅会话 entry 流；事件 id 即 seq，断线后自动带 Last-Event-ID 重建续传。 */
+  /** 订阅会话 entry 流（WebSocket）；事件 id 即 seq，断线后自动携带最新游标重建续传。 */
   static openAssistantEntriesStream(options: AssistantEntriesStreamOptions): SseStreamHandle {
-    return openSseStream({
-      url: this.getAssistantEntriesStreamUrl(options.projectName, options.sessionId, options.after ?? -1),
-      headers: sseHeaders,
+    let handle: SseStreamHandle | null = null;
+    handle = openWsStream({
+      buildUrl: () => {
+        const lastSeq = handle?.lastEventId;
+        const after =
+          lastSeq !== null && Number.isFinite(Number(lastSeq)) ? Number(lastSeq) : (options.after ?? -1);
+        return this.getAssistantEntriesWsUrl(options.projectName, options.sessionId, after);
+      },
+      authToken: () => getToken(),
       onMessage(message) {
-        const payload = parseSseJson(message.data, "session");
-        if (payload) options.onEvent(message.event, payload);
+        options.onEvent(message.event, message.data);
       },
       onError: sseErrorHandler(options.onError),
     });
+    return handle;
   }
 
   static async listAssistantSkills(

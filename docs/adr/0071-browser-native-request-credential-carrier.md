@@ -14,6 +14,10 @@ status: accepted
 
 **导出下载维持下载 token**，它是自带认证端点如今唯一的凭证形态。ADR `docs/adr/0059` 末尾留作另议的「统一三处」在此收口。
 
+## 修订：会话 entry 流改走 WebSocket，凭证以建连后的首帧承载
+
+会话 entry 流（助手对话）从 SSE 换成 WebSocket 后，`fetch`-带-header 的载体不再适用——浏览器 `WebSocket` API 同样带不了 `Authorization` header。凭证依旧不落 URL：客户端建连后以首帧 ``{"type": "auth", "token": ...}`` 发送会话凭证，服务端在窗口内等待首帧，缺失或无效以 4401 关闭，`?token=` 形态不存在。它不再是「request 的凭证载体」问题——WS 是常驻连接而非请求，凭证在连接生命周期内发送一次，浏览器后续 API 对它没有能见度，不存在 URL、header、日志的暴露面。项目事件流仍走 SSE + fetch（决策主体不变）；WS 通道只承担 entry 流的下行与 keepalive，命令类操作（发送、问答、排队消息）继续走 REST + Bearer。
+
 ## 明确不采用
 
 - **Cookie 认证**。它能让 `<img>`、原生下载与 SSE 一次性免费带凭证，但价值只在媒体要求登录或必须把凭证彻底移出 URL 时成立；媒体既然维持匿名，SSE 又能改走 `fetch`，剩下的只有登录/登出流程改造、CSRF 面、`AUTH_ENABLED=false` 行为定义与威胁模型重审这些成本。
@@ -24,4 +28,5 @@ status: accepted
 
 - 词汇表的「浏览器原生请求」只剩 `<img>` / `<video>` src 与原生下载导航两类，「自带认证端点」只剩导出下载端点。
 - `docs/security/threat-model.md` 中关于 SSE query param 泄漏的条目随实现一并更新；Cookie、refresh token 仍属「需重审」的改动。
-- 前端不再有 `EventSource` 与 `fakeEventSource` 测试替身，流式客户端的测试替身改为可控的 `fetch` 响应流。
+- 前端不再有 `EventSource` 与 `fakeEventSource` 测试替身，流式客户端的测试替身改为可控的 `fetch` 响应流；entry 流 WS 化后另有可控的 `WebSocket` 替身。
+- WS 端点不经 OpenAPI 枚举，认证覆盖测试对它单独建连实证 4401/放行，保证「新增路由自动纳入」的承诺不留缺口。

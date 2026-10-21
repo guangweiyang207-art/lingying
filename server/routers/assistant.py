@@ -2,14 +2,16 @@
 Assistant session APIs.
 """
 
+import asyncio
+import contextlib
+import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Literal
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.sse import EventSourceResponse, ServerSentEvent
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # pydantic 顶层不 re-export PydanticCustomError，只能直接依赖 pydantic-core。
@@ -36,9 +38,13 @@ from server.agent_runtime.session_manager import (
     SessionCapacityError,
     UnrecordedMessageError,
 )
+from server.auth import _verify_and_get_payload_async, is_auth_enabled
 from server.i18n import Translator, get_locale
 
 router = APIRouter()
+# WS 不挂 router 级 get_current_user：浏览器 WebSocket 握手带不了 Authorization header，
+# 鉴权在端点内以建连后的首帧承担（见 ws_router 路由的 docstring）。
+ws_router = APIRouter()
 
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
@@ -86,16 +92,6 @@ async def _validate_session_ownership(
     if session.project_name != project_name:
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
     return session
-
-
-async def _assistant_service_for_stream(
-    project_name: str,
-    session_id: str,
-    _t: Translator,
-) -> tuple[AssistantService, SessionMeta]:
-    service = get_assistant_service()
-    meta = await _validate_session_ownership(service, session_id, project_name, _t)
-    return service, meta
 
 
 class ImageAttachment(BaseModel):
@@ -345,45 +341,158 @@ async def list_entries(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-@router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
-async def stream_entries(
+# WS 鉴权帧等待上限：建连后客户端须在此窗口内完成首帧 auth，否则按未认证关闭。
+WS_AUTH_TIMEOUT_SECONDS = 10
+
+# 服务端主动关闭码：1000 = 流正常结束（订阅被溢出移除等，客户端应重连）；
+# 4401 = 鉴权失败；4404 = 会话不存在或不属于该项目；1011 = 服务端内部错误。
+WS_CLOSE_UNAUTHORIZED = 4401
+WS_CLOSE_SESSION_NOT_FOUND = 4404
+WS_CLOSE_INTERNAL_ERROR = 1011
+
+
+async def _ws_close(websocket: WebSocket, code: int) -> None:
+    """关闭 WS；对端已断开时 close 会抛 RuntimeError/OSError，静默即可。"""
+    with contextlib.suppress(RuntimeError, OSError):
+        await websocket.close(code=code)
+
+
+async def _ws_authenticate(websocket: WebSocket) -> bool:
+    """WS 建连后的首帧鉴权。
+
+    浏览器 WebSocket API 无法携带 Authorization header，且会话凭证不落 URL
+    （ADR 0071 否决 query param 形态）：客户端建连后先发
+    ``{"type": "auth", "token": "<JWT 或 arc- API Key>"}``，超时或校验失败以 4401 关闭。
+    校验复用 REST Bearer 的 ``_verify_and_get_payload_async``，凭证能力与 REST 一致。
+    ``AUTH_ENABLED=false`` 时跳过校验，协议保持一致。
+    """
+    if not is_auth_enabled():
+        return True
+    try:
+        text = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT_SECONDS)
+    except (TimeoutError, WebSocketDisconnect):
+        await _ws_close(websocket, WS_CLOSE_UNAUTHORIZED)
+        return False
+    try:
+        frame = json.loads(text)
+    except ValueError:
+        frame = None
+    token = frame.get("token") if isinstance(frame, dict) else None
+    payload = None
+    if isinstance(token, str) and token:
+        try:
+            payload = await _verify_and_get_payload_async(token)
+        except HTTPException:
+            payload = None
+    if payload is None:
+        await _ws_close(websocket, WS_CLOSE_UNAUTHORIZED)
+        return False
+    return True
+
+
+async def _ws_resolve_session(
+    websocket: WebSocket,
+    service: AssistantService,
     project_name: str,
     session_id: str,
-    request: Request,
-    _t: Translator,
-    after: int = Query(default=-1, ge=-1),
-    deps: tuple[AssistantService, SessionMeta] = Depends(_assistant_service_for_stream),
-) -> AsyncIterator[ServerSentEvent]:
-    """SSE entry 流：事件 id 即 seq。
+) -> SessionMeta | None:
+    """WS 会话归属校验：不存在或不属于该项目都以 4404 关闭（与 REST 的 404 同形）。"""
+    session = await service.get_session(session_id)
+    if session is None or session.project_name != project_name:
+        await _ws_close(websocket, WS_CLOSE_SESSION_NOT_FOUND)
+        return None
+    return session
 
-    游标优先级：前端流式客户端重连携带的 ``Last-Event-ID`` > ``?after=<seq>``
-    （冷订阅）。
+
+@ws_router.websocket("/sessions/{session_id}/entries/ws")
+async def stream_entries_ws(
+    websocket: WebSocket,
+    project_name: str,
+    session_id: str,
+    after: int = Query(default=-1, ge=-1),
+) -> None:
+    """WS entry 流：与 SSE 版共用 service 层事件，帧形如 ``{"event", "data", "id"?}``（``id`` 即 seq）。
+
+    鉴权：建连后客户端先发 ``{"type": "auth", "token": ...}`` 首帧（凭证不落 URL）。
+    游标：``?after=<seq>`` 冷订阅；断线重连由客户端携带最近一次 entry 的 seq 续传。
+    客户端帧：``{"type": "ping"}`` 回 ``pong``；``{"type": "interrupt"}`` 转交会话中断，
+    结果由 status 事件与 ``interrupt_result`` 帧承担。命令类操作（发送、问答、排队消息）
+    继续走 REST，本通道只承担下行流与 keepalive。
     """
-    service, meta = deps
-    cursor = after
-    last_event_id = request.headers.get("last-event-id", "").strip()
-    if last_event_id:
-        try:
-            cursor = int(last_event_id)
-        except ValueError:
-            logger.debug("忽略无效的 Last-Event-ID: %r，回退到游标 %s", last_event_id, cursor)
+    service = get_assistant_service()
+    await websocket.accept()
+    if not await _ws_authenticate(websocket):
+        return
     try:
-        async for event in service.stream_entry_events(session_id, meta=meta, request=request, after_seq=cursor):
-            yield event
-    except HTTPException:
-        raise
-    except AgentStartupError as exc:
-        detail = agent_startup_failure_detail(
-            exc,
-            project_name=project_name,
-            session_id=session_id,
-            title=_t("agent_startup_failed_title"),
-        )
-        async for event in service.stream_startup_failure_events(session_id, detail["failure"]):
-            yield event
-    except Exception as exc:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+        meta = await _ws_resolve_session(websocket, service, project_name, session_id)
+    except Exception:
+        logger.exception("WS entry 流会话校验失败 session=%s", session_id)
+        await _ws_close(websocket, WS_CLOSE_INTERNAL_ERROR)
+        return
+    if meta is None:
+        return
+
+    send_lock = asyncio.Lock()
+
+    async def send_frame(event: str, data: Any, seq: str | None = None) -> None:
+        frame: dict[str, Any] = {"event": event, "data": data}
+        if seq is not None:
+            frame["id"] = seq
+        async with send_lock:
+            await websocket.send_json(frame)
+
+    async def pump() -> None:
+        """下发存量与直播事件；订阅被溢出移除时生成器结束（客户端重连信号）。"""
+        try:
+            async for sse in service.stream_entry_events(session_id, meta=meta, after_seq=after):
+                data = sse.data if isinstance(sse.data, dict) else {}
+                await send_frame(sse.event or "message", data, sse.id)
+        except AgentStartupError as exc:
+            # 即时发送冷恢复启动失败：落终态后补推 entry + status（与 REST 版一致）。
+            original = exc.__cause__ or exc
+            failure = exc.failure_observation or build_startup_failure_observation(
+                original,
+                project_name=project_name,
+                session_id=session_id,
+                sdk_stderr=exc.sdk_stderr,
+            )
+            async for sse in service.stream_startup_failure_events(session_id, failure):
+                data = sse.data if isinstance(sse.data, dict) else {}
+                await send_frame(sse.event or "message", data, sse.id)
+
+    async def receive_loop() -> None:
+        while True:
+            text = await websocket.receive_text()
+            try:
+                frame = json.loads(text)
+            except ValueError:
+                logger.debug("忽略无法解析的 WS 客户端帧: %r", text)
+                continue
+            frame_type = frame.get("type") if isinstance(frame, dict) else None
+            if frame_type == "ping":
+                await send_frame("pong", {})
+            elif frame_type == "interrupt":
+                try:
+                    result = await service.interrupt_session(session_id, meta=meta)
+                except Exception:
+                    logger.warning("WS interrupt 请求失败 session=%s", session_id, exc_info=True)
+                else:
+                    await send_frame("interrupt_result", result)
+
+    receiver = asyncio.create_task(receive_loop())
+    sender = asyncio.create_task(pump())
+    close_code = 1000
+    try:
+        await asyncio.wait({receiver, sender}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in (receiver, sender):
+            task.cancel()
+        results = await asyncio.gather(receiver, sender, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception) and not isinstance(result, (WebSocketDisconnect, RuntimeError, OSError)):
+                logger.warning("WS entry 流任务异常 session=%s: %r", session_id, result)
+                close_code = WS_CLOSE_INTERNAL_ERROR
+    await _ws_close(websocket, close_code)
 
 
 @router.post("/sessions/{session_id}/interrupt")

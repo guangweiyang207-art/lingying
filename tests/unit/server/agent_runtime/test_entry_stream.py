@@ -1,4 +1,4 @@
-"""SSE entry 流与 REST entries：cursor 续传、draft 首帧、状态事件、常驻不关流。"""
+"""WS entry 流与 REST entries：cursor 续传、draft 首帧、状态事件、常驻不关流。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocketDisconnect
 from fastapi.sse import ServerSentEvent
 from fastapi.testclient import TestClient
 
@@ -397,32 +397,137 @@ def _build_client(monkeypatch, fake_service) -> TestClient:
     return TestClient(app)
 
 
-class TestEntryStreamRouter:
-    def test_last_event_id_takes_precedence_over_after(self, monkeypatch):
-        fake = _CursorCapturingService()
-        with _build_client(monkeypatch, fake) as client:
-            resp = client.get(
-                f"{PREFIX}/sessions/{SESSION_ID}/entries/stream?after=2",
-                headers={"Last-Event-ID": "5"},
-            )
-        assert resp.status_code == 200
-        assert fake.captured_after == 5
+class _HangingStreamService(_CursorCapturingService):
+    """stream_entry_events 挂起不结束：模拟常驻直播，供命令帧测试使用。"""
 
-    def test_after_query_used_without_last_event_id(self, monkeypatch):
+    async def stream_entry_events(self, session_id, *, meta=None, request=None, after_seq=-1):
+        self.captured_after = after_seq
+        await asyncio.Event().wait()  # 挂起直到被取消
+        yield ServerSentEvent(event="status", data={"status": "idle"})  # pragma: no cover
+
+
+async def _fake_payload(token: str) -> dict | None:
+    """``_verify_and_get_payload_async`` 的替身：与 REST Bearer 同签名，坏 token 抛 401。"""
+    from fastapi import HTTPException
+
+    if token == "good":
+        return {"sub": "u"}
+    if token.startswith("arc-"):
+        return {"sub": "apikey:u", "via": "apikey"}
+    raise HTTPException(status_code=401, detail="token 无效或已过期")
+
+
+class TestEntryStreamWsRouter:
+    """entry 流 WS 端点：首帧 auth（ADR 0071 凭证不落 URL）、游标续传、命令帧与关闭码。"""
+
+    def _build_client(self, monkeypatch, fake_service) -> TestClient:
+        monkeypatch.setattr(assistant, "get_assistant_service", lambda: fake_service)
+        app = FastAPI()
+        # 与生产注册同形：{project_name} 必须留在路径里，否则端点把它当必填 query 参数拒连。
+        app.include_router(assistant.ws_router, prefix="/api/v1/projects/{project_name}/assistant")
+        return TestClient(app)
+
+    def _assert_closed_with(self, client: TestClient, url: str, token: str | None = None, code: int = 4401):
+        """建连、（可选）发首帧 auth、读到服务端关闭，断言关闭码。"""
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            self._connect_and_receive(client, url, token=token)
+        assert exc_info.value.code == code
+
+    @staticmethod
+    def _connect_and_receive(client: TestClient, url: str, token: str | None = None) -> None:
+        with client.websocket_connect(url) as ws:
+            if token is not None:
+                ws.send_json({"type": "auth", "token": token})
+            ws.receive_json()
+
+    @staticmethod
+    def _drain_until_close(ws) -> None:
+        """读到服务端关闭为止。"""
+        while True:
+            ws.receive_json()
+
+    def test_hangup_stream_replays_frames_then_closes_1000(self, monkeypatch):
         fake = _CursorCapturingService()
-        with _build_client(monkeypatch, fake) as client:
-            resp = client.get(f"{PREFIX}/sessions/{SESSION_ID}/entries/stream?after=3")
-        assert resp.status_code == 200
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: True)
+        monkeypatch.setattr(assistant, "_verify_and_get_payload_async", lambda token: _fake_payload(token))
+        client = self._build_client(monkeypatch, fake)
+        with client.websocket_connect(f"{PREFIX}/sessions/{SESSION_ID}/entries/ws?after=3") as ws:
+            ws.send_json({"type": "auth", "token": "good"})
+            assert ws.receive_json() == {"event": "status", "data": {"status": "idle"}}
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                self._drain_until_close(ws)
+            assert exc_info.value.code == 1000
         assert fake.captured_after == 3
 
-    def test_invalid_last_event_id_falls_back_to_after(self, monkeypatch):
+    def test_missing_auth_frame_times_out_with_4401(self, monkeypatch):
         fake = _CursorCapturingService()
-        with _build_client(monkeypatch, fake) as client:
-            client.get(
-                f"{PREFIX}/sessions/{SESSION_ID}/entries/stream?after=4",
-                headers={"Last-Event-ID": "not-a-number"},
-            )
-        assert fake.captured_after == 4
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: True)
+        monkeypatch.setattr(assistant, "WS_AUTH_TIMEOUT_SECONDS", 0.05)
+        client = self._build_client(monkeypatch, fake)
+        self._assert_closed_with(client, f"{PREFIX}/sessions/{SESSION_ID}/entries/ws", code=4401)
+
+    def test_invalid_token_closes_4401(self, monkeypatch):
+        fake = _CursorCapturingService()
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: True)
+        client = self._build_client(monkeypatch, fake)
+        self._assert_closed_with(client, f"{PREFIX}/sessions/{SESSION_ID}/entries/ws", token="not-a-jwt", code=4401)
+
+    def test_auth_disabled_accepts_connection_without_auth_frame(self, monkeypatch):
+        fake = _HangingStreamService()
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: False)
+        client = self._build_client(monkeypatch, fake)
+        with client.websocket_connect(f"{PREFIX}/sessions/{SESSION_ID}/entries/ws?after=2") as ws:
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json() == {"event": "pong", "data": {}}
+        assert fake.captured_after == 2
+
+    def test_unknown_session_closes_4404(self, monkeypatch):
+        fake = _CursorCapturingService()
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: True)
+        monkeypatch.setattr(assistant, "_verify_and_get_payload_async", lambda token: _fake_payload(token))
+        client = self._build_client(monkeypatch, fake)
+        self._assert_closed_with(client, f"{PREFIX}/sessions/unknown/entries/ws", token="good", code=4404)
+
+    def test_other_project_session_closes_4404(self, monkeypatch):
+        fake = _CursorCapturingService()
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: True)
+        monkeypatch.setattr(assistant, "_verify_and_get_payload_async", lambda token: _fake_payload(token))
+        client = self._build_client(monkeypatch, fake)
+        self._assert_closed_with(
+            client,
+            f"/api/v1/projects/other/assistant/sessions/{SESSION_ID}/entries/ws",
+            token="good",
+            code=4404,
+        )
+
+    def test_interrupt_frame_forwards_to_service(self, monkeypatch):
+        class _InterruptingService(_HangingStreamService):
+            def __init__(self):
+                super().__init__()
+                self.interrupted = False
+
+            async def interrupt_session(self, session_id, *, meta=None):
+                self.interrupted = True
+                return {"interrupted": True}
+
+        fake = _InterruptingService()
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: False)
+        client = self._build_client(monkeypatch, fake)
+        with client.websocket_connect(f"{PREFIX}/sessions/{SESSION_ID}/entries/ws") as ws:
+            ws.send_json({"type": "interrupt"})
+            assert ws.receive_json() == {"event": "interrupt_result", "data": {"interrupted": True}}
+        assert fake.interrupted is True
+
+    def test_malformed_client_frame_is_ignored(self, monkeypatch):
+        fake = _HangingStreamService()
+        monkeypatch.setattr(assistant, "is_auth_enabled", lambda: False)
+        client = self._build_client(monkeypatch, fake)
+        with client.websocket_connect(f"{PREFIX}/sessions/{SESSION_ID}/entries/ws") as ws:
+            ws.send_text("not-json")
+            ws.send_text("[]")
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json() == {"event": "pong", "data": {}}
+        assert fake.captured_after == -1
 
     def test_entries_rest_endpoint(self, monkeypatch):
         fake = _CursorCapturingService()

@@ -727,6 +727,13 @@ app.include_router(
     dependencies=[Depends(get_current_user)],
     tags=["Agent 会话"],
 )
+# WS 不受 get_current_user 保护：浏览器 WebSocket 握手带不了 Authorization header，
+# 鉴权在端点内以建连后的首帧 auth 承担（见 server/routers/assistant.py 的 _ws_authenticate）。
+app.include_router(
+    assistant.ws_router,
+    prefix="/api/v1/projects/{project_name}/assistant",
+    tags=["Agent 会话"],
+)
 app.include_router(
     project_events.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目变更流"]
 )

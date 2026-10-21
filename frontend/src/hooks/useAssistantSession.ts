@@ -65,7 +65,7 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
 /**
  * 管理 Agent 会话生命周期，时间线唯一读源为会话事件日志：
  * - 冷读 GET entries（历史回放）
- * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）：
+ * - WS entry 流实时接收（帧 id 即 seq，断线由流式客户端带 `?after=` 游标续传）：
  *   打开会话时建立一条，切换会话或关闭面板时关闭；轮次结束只更新状态、不关流，
  *   发送与自主轮次的内容都从这条流收到
  * - 发送消息：回复进行中同样可发；已有会话的消息先进排队消息托盘，被 Agent 接纳时
@@ -272,7 +272,7 @@ export function useAssistantSession(projectName: string | null) {
         },
       };
 
-      // 冷订阅游标：已有条目之后；断线重建由流式客户端携带 Last-Event-ID 续传
+      // 冷订阅游标：已有条目之后；断线重建由流式客户端携带最近帧 seq（`?after=`）续传
       const after = lastEntrySeq(store.getState().entries);
       const stream = API.openAssistantEntriesStream({
         projectName: projectName!,

@@ -20,6 +20,28 @@ function isLoopback(url: URL) {
   return url.hostname === "127.0.0.1" || url.hostname === "localhost";
 }
 
+/** 把录制的 SSE 开场帧文本解析成会话 entry 流的 WS 帧序列（event/data/id 一一对应）。 */
+function sseBodyToFrames(body: string): string[] {
+  const frames: string[] = [];
+  for (const block of body.split("\n\n")) {
+    let event = "message";
+    let data = "";
+    let id: string | undefined;
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice("event:".length).trim();
+      else if (line.startsWith("data:")) data += (data ? "\n" : "") + line.slice("data:".length).trim();
+      else if (line.startsWith("id:")) id = line.slice("id:".length).trim();
+    }
+    if (!data) continue;
+    try {
+      frames.push(JSON.stringify({ event, data: JSON.parse(data), ...(id ? { id } : {}) }));
+    } catch {
+      // 非 JSON 的 data（如纯文本提示帧）不进入 WS 回放
+    }
+  }
+  return frames;
+}
+
 export const test = base.extend<{ api: ApiStub }>({
   api: [
     async ({ page }, use) => {
@@ -47,6 +69,19 @@ export const test = base.extend<{ api: ApiStub }>({
           return;
         }
         await route.fulfill({ status: response.status, json: response.body });
+      });
+      // 会话 entry 流已 WS 化，不走 page.route：桥接到同键的录制/替换 SSE 开场帧
+      // （WS 的 `.../entries/ws?after=N` 映射到录制的 `GET .../entries/stream?after=N`），
+      // 按帧回放后保持连接不关流；没有对应录制的会话直接关闭，客户端按退避重连。
+      await page.routeWebSocket(/\/entries\/ws(\?|$)/, (ws) => {
+        const url = new URL(ws.url());
+        const key = recordedKey("GET", url.pathname.replace("/entries/ws", "/entries/stream") + url.search);
+        const response = overrides.get(key) ?? RECORDED.get(key);
+        if (!response || typeof response.body !== "string") {
+          ws.close();
+          return;
+        }
+        for (const frame of sseBodyToFrames(response.body)) ws.send(frame);
       });
 
       await use({
