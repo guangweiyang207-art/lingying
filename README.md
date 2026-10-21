@@ -1,220 +1,102 @@
-<h1 align="center">
+<h1 align="center">灵映 · LingYing</h1>
+
+<p align="center">
+  <strong>AI 视频创作平台 —— 把一个想法变成一条可以发布的短视频</strong>
   <br>
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-animated-light.svg">
-    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/logo-animated.svg">
-    <img src="docs/assets/logo-animated-light.svg" alt="ArcReel Logo" width="128">
-  </picture>
-  <br>
-  ArcReel
-  <br>
-</h1>
-
-<p align="center">
-  <strong>开源、自托管的 AI 视频生产工作台</strong>
-  <br>
-  将小说、成品剧本或商品素材转化为角色一致、过程可控、成本可追踪、可继续编辑的短视频。
+  小说、剧本或一句创作构想，经由内嵌创作 Agent 编排，自动走完
+  资产设定 → 分镜 → 生成 → 合成的完整流水线。
 </p>
-
-<p align="center">
-  <a href="README.md"><img src="https://img.shields.io/badge/lang-中文-red?style=flat-square" alt="中文"></a>
-  <a href="README.en.md"><img src="https://img.shields.io/badge/lang-English-blue?style=flat-square" alt="English"></a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/ArcReel/ArcReel/releases/latest"><img src="https://img.shields.io/github/v/release/ArcReel/ArcReel?style=flat-square&label=release" alt="Release"></a>
-  <a href="https://github.com/ArcReel/ArcReel/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/ArcReel/ArcReel/test.yml?style=flat-square&label=tests" alt="Tests"></a>
-  <a href="https://codecov.io/gh/ArcReel/ArcReel"><img src="https://img.shields.io/codecov/c/github/ArcReel/ArcReel?style=flat-square&label=coverage" alt="Coverage"></a>
-  <a href="https://hub.docker.com/r/arcreel/arcreel"><img src="https://img.shields.io/docker/pulls/arcreel/arcreel?style=flat-square&logo=docker&logoColor=white&label=docker%20pulls" alt="Docker"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-2ea44f?style=flat-square" alt="License"></a>
-  <a href="https://github.com/ArcReel/ArcReel"><img src="https://img.shields.io/github/stars/ArcReel/ArcReel?style=flat-square" alt="Stars"></a>
-</p>
-
-<p align="center">
-  <a href="#快速开始"><strong>快速开始</strong></a>
-  ·
-  <a href="https://docs.arc-reel.com/guide/getting-started">入门教程</a>
-  ·
-  <a href="https://docs.arc-reel.com/">完整文档</a>
-  ·
-  <a href="#交流群">加入社区</a>
-</p>
-
-<p align="center">
-  <img src="docs/assets/screenshots/hero.webp" alt="ArcReel 工作台" width="900">
-</p>
-
-## 赞助商
-
-> [想出现在这里？](mailto:support@arc-reel.com)
-
-<table>
-  <tr>
-    <td width="200" align="center" valign="top">
-      <a href="https://metaso.cn/minimax-h3/?s=arc"><img src="docs/assets/sponsors/metaso.png" alt="秘塔科技" width="180"></a>
-    </td>
-    <td valign="top">
-      <strong>MiniMax H3 视频生成 API｜秘塔科技</strong><br>
-      秘塔科技提供高性价比的 MiniMax H3 视频生成服务：<strong>768P 仅 0.09 元/秒，2K 仅 0.15 元/秒</strong>。支持原生 2K、音画同步，API 兼容 <strong>OpenAI 协议</strong>，同时支持 <strong>ComfyUI</strong>，无需自行部署 GPU。<br>
-      🎁 通过 <a href="https://metaso.cn/minimax-h3/?s=arc">ArcReel 专属链接注册</a>，即可领取赠送额度及专属优惠。
-    </td>
-  </tr>
-  <tr>
-    <td width="200" align="center" valign="top">
-      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel"><img src="docs/assets/sponsors/sidrune-ai.png" alt="Sidrune AI" width="180"></a>
-    </td>
-    <td valign="top">
-      <strong>一个入口，接入并管理全球主流 AI 模型｜Sidrune AI</strong><br>
-      Sidrune AI 面向个人开发者、技术团队与企业，通过统一 API 接入并管理全球主流 AI 模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API 调用成本较官方或基准价格可降低 40%—98%。<br>
-      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel">立即访问并注册</a>，即可获得 $3 API 额度。
-    </td>
-  </tr>
-  <tr>
-    <td width="200" align="center" valign="top">
-      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
-    </td>
-    <td valign="top">
-      <strong>OfoxAI：脚本、图像与视频创作的模型 API</strong><br>
-      通过 OfoxAI 接入文本、图像和视频模型，为脚本打磨、角色与场景参考图、视频镜头素材选择合适的能力。具体模型的输入要求、支持参数及调用方式请查看 API 文档。<br>
-      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">探索 OfoxAI 模型与 API →</a>
-    </td>
-  </tr>
-</table>
-
-## 界面一览
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="视频单元"></td>
-    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="道具库"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="场景库"></td>
-    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="广告/带货模式"></td>
-  </tr>
-</table>
-
-## 案例
-
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/fcc4ceb2-64dd-44a0-a32c-e0c00b2f9796" width="100%" controls></video>
-</div>
-
-> 《入职地府后投诉鬼都是我老客户》第 1 集
-
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/d6bfe589-a5c0-4961-8bfe-b7b59be3bb8a" width="100%" controls></video>
-</div>
-
-> 《入职地府后投诉鬼都是我老客户》第 2 集
-
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/1e580769-80f7-4d14-b46d-68569b6e7e4c" width="100%" controls></video>
-</div>
-
-> 《入职地府后投诉鬼都是我老客户》第 3 集
-
-## ArcReel 是什么
-
-ArcReel 是面向 AI 漫剧与小说改编、旁白/解说短视频、广告与带货短片的开源自托管工作台。它把内容分析、资产管理、分镜、媒体生成、费用追踪和导出组织成一条可审核、可中断恢复的生产流水线。
-
-- **统一生产链路**：小说、成品剧本或商品素材都能逐步转化为角色、场景、道具、分镜、视频片段和最终成片。
-- **视觉一致、人工可控**：跨分镜复用资产图等参考图，关键阶段可确认，单个素材可重做，历史版本可回滚。
-- **模型与成本可管理**：统一配置文本、图像、视频和 TTS 能力，并在生成前后查看费用与实际用量。
-- **交付可继续编辑**：既可直接合成视频，也可导出剪映草稿继续调整字幕、配音、节奏和转场。导出面向中国大陆版剪映，与 CapCut 的兼容性尚未验证。
-
-## 从输入到成片
-
-```mermaid
-flowchart LR
-    A["小说 / 成品剧本 / 商品素材"] --> B["内容分析与项目规划"]
-    B --> C["角色 / 场景 / 道具资产"]
-    C --> D["分集与结构化剧本"]
-    D --> E["分镜图 / 多宫格分镜"]
-    E --> F["视频片段 / 旁白音轨"]
-    F --> G["成片合成"]
-    F --> H["剪映草稿导出"]
-```
-
-每个阶段都可以由 Agent（智能体）编排，也可以由用户在工作台中审核、调整或重新生成。详细模式选择见 [创作流程与模式](https://docs.arc-reel.com/guide/workflows)。
-
-## 快速开始
-
-准备好 Docker 和 Docker Compose，然后运行：
-
-```bash
-git clone https://github.com/ArcReel/ArcReel.git
-cd ArcReel/deploy
-
-cp .env.example .env
-docker compose up -d
-```
-
-访问 <http://localhost:1241>。默认用户名为 `admin`；`AUTH_PASSWORD` 留空时，首次启动会自动生成密码并回写到 `deploy/.env`。
-
-> 默认 Compose 会将 `1241` 端口发布到宿主机所有网络接口。请勿将服务直接暴露到公网；远程访问前请配置认证，并使用 HTTPS、VPN 或安全隧道，详见 [反向代理与 HTTPS](https://docs.arc-reel.com/ops/deployment#reverse-proxy-and-https)。
-
-登录后进入 **设置** 页面，配置 ArcReel Agent 以及文本、图像、视频等生成能力，再创建项目开始制作。
-
-完整的首次使用流程见 [完整入门教程](https://docs.arc-reel.com/guide/getting-started)；生产部署、升级、备份和反向代理见 [部署与运维](https://docs.arc-reel.com/ops/deployment)。
-
-## 文档
-
-| 页面 | 内容 |
-|---|---|
-| [文档首页](https://docs.arc-reel.com/) | 按使用者、运维者和开发者进入文档 |
-| [完整入门教程](https://docs.arc-reel.com/guide/getting-started) | 从首次部署到生成第一条视频 |
-| [创作流程与模式](https://docs.arc-reel.com/guide/workflows) | 小说、剧本与创作构想，三种创作类型及两种生成模式 |
-| [供应商与模型配置](https://docs.arc-reel.com/guide/providers) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
-| [剪映草稿导出](https://docs.arc-reel.com/guide/jianying-export) | 将 ArcReel 生成结果交给剪映继续编辑 |
-| [常见问题](https://docs.arc-reel.com/guide/faq) | 部署、费用、模型、数据和许可证问题 |
-| [部署与运维](https://docs.arc-reel.com/ops/deployment) | SQLite、PostgreSQL、升级、备份和反向代理 |
-| [从 SQLite 迁移到 PostgreSQL](https://docs.arc-reel.com/ops/migrate-to-postgres) | 数据迁移、验证与回滚流程 |
-| [架构说明](https://docs.arc-reel.com/dev/architecture) | Agent Runtime、任务队列、供应商抽象和数据层 |
-| [贡献指南](https://docs.arc-reel.com/dev/contributing) | 本地开发、测试、代码规范和 PR 流程 |
-
-## 交流群
-
-扫码加入飞书交流群，获取使用帮助、版本动态和创作经验：
-
-<p align="center">
-  <img src="docs/assets/feishu-qr.png" alt="ArcReel 飞书交流群二维码" width="280">
-</p>
-
-遇到可以复现的 Bug 或明确的功能需求，也可以直接提交 [GitHub Issue](https://github.com/ArcReel/ArcReel/issues)。
-
-## 贡献
-
-欢迎贡献代码、文档、测试、供应商适配和问题复现。
-
-开始开发前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。本地克隆后建议立即安装项目的 pre-commit 钩子：
-
-```bash
-uv run pre-commit install
-```
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=arcreel%2Farcreel&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&legend=top-left" />
- </picture>
-</a>
-
-## 许可证与商业使用
-
-ArcReel 采用 [GNU Affero General Public License v3.0](LICENSE)，附加条款见 [NOTICE](NOTICE)。
-
-如果你的组织无法采用 AGPL-3.0，或者希望在不承担 AGPL 开源义务的情况下进行商业部署、白标或再分发，请联系：
-
-**support@arc-reel.com**
-
-Copyright © 2026 Pollo3470 and ArcReel contributors
 
 ---
 
-<p align="center">
-  如果 ArcReel 对你有帮助，欢迎点亮一个 ⭐ Star。
-</p>
+## 这是什么
+
+灵映是一个本地优先的 AI 视频生产工作台：输入小说、成品剧本或商品素材，它会逐步产出角色 / 场景 / 道具资产、分集剧本、分镜图、视频片段与配音，最终合成成片或导出剪映草稿继续精剪。
+
+整个过程由内嵌的创作 Agent（基于 Claude Agent SDK）用自然语言驱动，也可以随时在工作台里人工审核、调整、重做任意一步——关键节点可确认，素材可单独重生成，历史版本可回滚，每一笔模型调用的费用都实时可查。
+
+### 核心特性
+
+- **全链路流水线**：内容分析 → 资产库 → 分集剧本 → 分镜 → 视频 / 音轨 → 成片合成 / 剪映导出，每个阶段可中断、可恢复
+- **内嵌创作 Agent**：对话式编排创作流程，支持对话流 WebSocket 实时交互与任务进度 SSE 推送
+- **角色一致性**：跨分镜复用参考图，保证同一角色在多镜头下形象稳定
+- **多供应商抽象**：文本 / 图像 / 视频 / TTS 四类能力统一接入，当前适配火山方舟、MiniMax 等 11 家供应商
+- **费用可追踪**：按次记录每次生成的 token、时长与成本，生成前后均可核对
+- **剪映草稿导出**：成片可直接合成，也可导出剪映草稿继续调整字幕、配音与转场
+- **模型市场**：内置供应商 / 模型目录与安装管理（独立子包，带格式校验器）
+
+## 架构
+
+```mermaid
+flowchart LR
+    subgraph frontend ["frontend · React SPA"]
+        UI["工作台 / 对话 / 任务面板"]
+    end
+    subgraph server ["server · FastAPI"]
+        API["REST API + WebSocket + SSE"]
+        RT["agent_runtime · Claude Agent SDK 封装"]
+        W["GenerationWorker 任务队列"]
+    end
+    subgraph lib ["lib · 核心库"]
+        REPO["仓储层 + 项目迁移"]
+        PROV["供应商抽象"]
+        MKT["market-core / catalog-core"]
+    end
+    DB[("MySQL / SQLite")]
+    UI -->|HTTP / WS| API
+    API --> REPO
+    RT --> REPO
+    W --> PROV
+    REPO --> DB
+```
+
+| 层 | 技术 |
+|---|---|
+| 前端 | React + TypeScript + Vite，Vitest 单测 |
+| 后端 | Python + FastAPI + SQLAlchemy（async）+ Alembic |
+| Agent | Claude Agent SDK，配置源与开发态分离（`agent_runtime_profile/`） |
+| 数据库 | 默认 SQLite，支持 MySQL 5.7+（方言适配集中在 `lib/db/mysql_compat.py`） |
+| 工具链 | uv（Python）/ pnpm（前端），`scripts/gate.py` 按域跑质量闸门 |
+
+## 快速开始
+
+环境要求：Python 3.12+ 与 [uv](https://docs.astral.sh/uv/)、Node 20+ 与 pnpm。
+
+```bash
+git clone https://github.com/guangweiyang207-art/lingying.git
+cd lingying
+
+# 1. 配置
+cp .env.example .env          # 按注释填写；AUTH_PASSWORD 留空则首次启动自动生成
+uv sync                       # 安装后端依赖
+
+# 2. 启动后端（端口 1241）
+uv run uvicorn server.app:app --port 1241
+
+# 3. 另开终端，启动前端
+cd frontend
+pnpm install
+pnpm dev                      # http://localhost:5173
+```
+
+打开 <http://localhost:5173>，用户名 `admin`、密码取自 `.env` 的 `AUTH_PASSWORD`（首次启动自动生成并回写）。登录后先在 **设置** 页配置模型供应商的 API Key，再创建项目开始创作。
+
+### 数据库与数据目录
+
+默认使用 SQLite，开箱即用；需要 MySQL 时在 `.env` 中改为：
+
+```ini
+DATABASE_URL=mysql+aiomysql://user:pass@host:3306/lingying?charset=utf8mb4
+```
+
+表结构由 Alembic 管理（`uv run alembic upgrade head`）；从 SQLite 换 MySQL 可用 `scripts/migrate_sqlite_to_mysql.py` 一次性搬数。生成素材、项目文件的存放位置由 `ARCREEL_DATA_DIR` 指定。
+
+## 说明
+
+- 请在各模型供应商处自行开通账号并配置 API Key，视频 / 图像生成按量计费，建议先用少量分镜试产再放量。
+- 剪映草稿导出面向中国大陆版剪映，CapCut 兼容性未验证。
+- 本项目基于开源项目 [ArcReel](https://github.com/ArcReel/ArcReel)（AGPL-3.0）二次开发，在此基础上的主要定制包括：MySQL 方言支持与数据迁移链路、对话流 SSE → WebSocket 改造、内嵌 Agent 的「灵映」角色定制等。
+
+## 许可证
+
+[AGPL-3.0](LICENSE)（继承自上游 ArcReel）
